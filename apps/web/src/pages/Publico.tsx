@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Minus, Plus, Search } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { Paginacion } from '@/components/Paginacion'
 import { ProductoFoto } from '@/components/ProductoFoto'
@@ -11,11 +12,14 @@ type Respuesta = { tienda: { nombre: string; telefonoWhatsapp: string | null }; 
 
 export function Publico() {
   const { slug = '' } = useParams()
+  const grilla = useRef<HTMLDivElement>(null)
   const [datos, setDatos] = useState<Respuesta | null>(null)
   const [carrito, setCarrito] = useState<Record<string, number>>({})
   const [telefono, setTelefono] = useState('')
   const [aviso, setAviso] = useState('')
+  const [q, setQ] = useState('')
   const [pagina, setPagina] = useState(0)
+  const [medidas, setMedidas] = useState({ columnas: 5, filas: 3 })
 
   async function cargar() {
     const respuesta = await fetch(`/api/public/${slug}/productos`)
@@ -29,6 +33,31 @@ export function Publico() {
     return () => fuente.close()
   }, [slug])
 
+  useEffect(() => {
+    const medir = () => {
+      const caja = grilla.current
+      if (!caja) return
+      const columnas = caja.clientWidth >= 760 ? 5 : caja.clientWidth >= 520 ? 3 : 2
+      const filas = Math.max(1, Math.floor(caja.clientHeight / 96))
+      setMedidas((actual) => (actual.columnas === columnas && actual.filas === filas ? actual : { columnas, filas }))
+    }
+    medir()
+    const obs = new ResizeObserver(medir)
+    if (grilla.current) obs.observe(grilla.current)
+    return () => obs.disconnect()
+  }, [datos])
+
+  const lista = useMemo(() => {
+    const texto = q.trim().toLowerCase()
+    const base = datos?.productos ?? []
+    return texto ? base.filter((item) => item.nombre.toLowerCase().includes(texto)) : base
+  }, [datos, q])
+
+  const porPagina = medidas.columnas * medidas.filas
+  const paginas = Math.max(1, Math.ceil(lista.length / porPagina))
+  const paginaSegura = Math.min(pagina, paginas - 1)
+  const visibles = lista.slice(paginaSegura * porPagina, paginaSegura * porPagina + porPagina)
+
   const lineas = useMemo(() => {
     return Object.entries(carrito)
       .filter(([, cantidad]) => cantidad > 0)
@@ -39,11 +68,18 @@ export function Publico() {
   }, [carrito, datos])
 
   const total = lineas.reduce((suma, linea) => suma + linea.precio * linea.cantidad, 0)
-  const porPagina = 6
-  const productos = datos?.productos ?? []
-  const paginas = Math.max(1, Math.ceil(productos.length / porPagina))
-  const paginaSegura = Math.min(pagina, paginas - 1)
-  const visibles = productos.slice(paginaSegura * porPagina, paginaSegura * porPagina + porPagina)
+  const piezas = lineas.reduce((suma, linea) => suma + linea.cantidad, 0)
+
+  function cambiar(id: string, delta: number) {
+    setAviso('')
+    setCarrito((actual) => {
+      const siguiente = Math.max(0, (actual[id] || 0) + delta)
+      const copia = { ...actual }
+      if (siguiente === 0) delete copia[id]
+      else copia[id] = siguiente
+      return copia
+    })
+  }
 
   function pedirWhatsapp() {
     const texto = encodeURIComponent(
@@ -67,58 +103,113 @@ export function Publico() {
   }
 
   return (
-    <div className="relative min-h-dvh bg-paper px-4 py-8">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-paper">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
         <div className="absolute -left-16 top-0 h-64 w-64 rounded-full bg-saffron/20 blur-3xl" />
         <div className="absolute right-0 bottom-0 h-64 w-64 rounded-full bg-clay/15 blur-3xl" />
       </div>
-      <div className="relative mx-auto max-w-3xl">
-        <p className="text-xs font-semibold tracking-[0.18em] text-muted uppercase">Catálogo</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{datos?.tienda.nombre ?? 'Tienda'}</h1>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          {visibles.map((producto) => {
-            const elegida = carrito[producto.id] || 0
-            return (
-            <article
-              key={producto.id}
-              className={`relative rounded-3xl border p-4 backdrop-blur-xl ${elegida ? 'border-saffron bg-saffron/20 ring-2 ring-saffron' : 'border-ink/10 bg-cream/80'}`}
-            >
-              {elegida > 0 && (
-                <span className="absolute -top-2 -right-2 grid h-6 min-w-6 place-items-center rounded-full bg-[#c2412d] px-1.5 text-xs font-bold text-white tabular-nums">
-                  {elegida}
-                </span>
-              )}
-              <div className="flex items-start gap-3">
-                <ProductoFoto nombre={producto.nombre} className="h-16 w-16" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <h2 className="font-semibold">{producto.nombre}</h2>
-                    <span className="rounded-full bg-paper px-2 py-1 text-xs font-semibold">{producto.estado}</span>
-                  </div>
-                  <p className="tabular-nums">{pesos(producto.precio)}</p>
-                </div>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button className="h-11 w-11 rounded-xl bg-paper" onClick={() => setCarrito((actual) => ({ ...actual, [producto.id]: Math.max(0, (actual[producto.id] || 0) - 1) }))}>−</button>
-                <span className="grid h-11 w-8 place-items-center tabular-nums">{carrito[producto.id] || 0}</span>
-                <button className="h-11 w-11 rounded-xl bg-ink text-cream" disabled={producto.estado === 'agotado'} onClick={() => setCarrito((actual) => ({ ...actual, [producto.id]: (actual[producto.id] || 0) + 1 }))}>+</button>
-              </div>
-            </article>
-            )
-          })}
+      <header className="relative flex shrink-0 items-end justify-between gap-3 px-4 pt-4 pb-2">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.18em] text-muted uppercase">Catálogo</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{datos?.tienda.nombre ?? 'Tienda'}</h1>
         </div>
-        <div className="mt-4 pb-44">
-          <Paginacion pagina={paginaSegura} paginas={paginas} onChange={setPagina} />
-        </div>
-        <div className="sticky bottom-3 rounded-3xl border border-ink/10 bg-cream/90 p-4 backdrop-blur-xl">
-          <p className="font-semibold tabular-nums">Pedido {pesos(total)}</p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <Input inputMode="numeric" placeholder="Tu WhatsApp" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-            <Button variant="outline" disabled={!lineas.length} onClick={pedirWhatsapp}>Pedir por WhatsApp</Button>
-            <Button variant="brand" disabled={!lineas.length || telefono.length < 10} onClick={() => void dejarPedido()}>Enviar pedido</Button>
+        <p className="text-sm text-muted">{lista.length} productos</p>
+      </header>
+      <div className="relative grid min-h-0 flex-1 gap-3 px-4 pb-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="flex min-h-0 flex-col">
+          <div className="relative shrink-0">
+            <Search className="pointer-events-none absolute top-2.5 left-2.5 h-3.5 w-3.5 text-muted" />
+            <Input
+              className="pl-8"
+              placeholder="Buscar producto"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value)
+                setPagina(0)
+              }}
+            />
           </div>
-          {aviso && <p className="mt-2 text-sm text-moss">{aviso}</p>}
-        </div>
+          <div ref={grilla} className="mt-2 min-h-0 flex-1">
+            <div
+              className="grid h-full content-start gap-1.5"
+              style={{ gridTemplateColumns: `repeat(${medidas.columnas}, minmax(0, 1fr))` }}
+            >
+              {visibles.map((producto) => {
+                const elegida = carrito[producto.id] || 0
+                const agotado = producto.estado === 'agotado'
+                return (
+                  <button
+                    key={producto.id}
+                    type="button"
+                    disabled={agotado}
+                    onClick={() => cambiar(producto.id, 1)}
+                    className={`relative rounded-xl border p-2 text-left shadow-[0_16px_40px_-28px_rgba(28,22,18,0.6)] backdrop-blur-xl transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+                      elegida ? 'border-saffron bg-saffron/20 ring-2 ring-saffron' : 'border-ink/10 bg-cream/80'
+                    }`}
+                  >
+                    {elegida > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 z-10 grid h-5 min-w-5 place-items-center rounded-full bg-[#c2412d] px-1 text-[11px] font-bold text-white tabular-nums">
+                        {elegida}
+                      </span>
+                    )}
+                    <ProductoFoto nombre={producto.nombre} className="mb-1 h-8 w-full text-base" />
+                    <p className="truncate text-sm font-semibold leading-tight">{producto.nombre}</p>
+                    <p className="text-xs tabular-nums">{pesos(producto.precio)}</p>
+                    <p className={`text-[11px] ${producto.estado === 'disponible' ? 'text-moss' : 'text-muted'}`}>{producto.estado}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="mt-2 shrink-0">
+            <Paginacion pagina={paginaSegura} paginas={paginas} onChange={setPagina} />
+          </div>
+        </section>
+        <aside className="flex max-h-[42%] min-h-0 flex-col rounded-3xl border border-ink/10 bg-cream/80 p-4 shadow-[0_20px_50px_-32px_rgba(28,22,18,0.55)] backdrop-blur-xl lg:max-h-none">
+          <div className="flex shrink-0 items-baseline justify-between gap-3">
+            <p className="font-semibold">Tu pedido{piezas > 0 ? ` · ${piezas}` : ''}</p>
+            <p className="text-lg font-semibold tabular-nums">{pesos(total)}</p>
+          </div>
+          <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-auto">
+            {lineas.length ? (
+              lineas.map((linea) => (
+                <li key={linea.id} className="flex items-center gap-2 rounded-2xl border border-saffron/50 bg-saffron/20 px-2 py-1.5">
+                  <ProductoFoto nombre={linea.nombre} className="h-10 w-10 text-lg" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold leading-tight">{linea.nombre}</p>
+                    <p className="text-xs tabular-nums text-muted">{pesos(linea.precio * linea.cantidad)}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button type="button" className="grid h-7 w-7 place-items-center rounded-lg bg-cream" aria-label={`Quitar ${linea.nombre}`} onClick={() => cambiar(linea.id, -1)}>
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="w-5 text-center text-sm font-semibold tabular-nums">{linea.cantidad}</span>
+                    <button type="button" className="grid h-7 w-7 place-items-center rounded-lg bg-ink text-cream" aria-label={`Sumar ${linea.nombre}`} onClick={() => cambiar(linea.id, 1)}>
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <li className="rounded-2xl bg-paper px-3 py-4 text-sm text-muted">Toca un producto y queda aquí, con su total.</li>
+            )}
+          </ul>
+          <div className="mt-3 shrink-0 space-y-2 border-t border-ink/10 pt-3">
+            <label className="text-sm font-medium text-ink/80" htmlFor="whatsapp">
+              Tu WhatsApp
+            </label>
+            <Input id="whatsapp" inputMode="numeric" placeholder="300 000 0000" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" disabled={!lineas.length} onClick={pedirWhatsapp}>
+                WhatsApp
+              </Button>
+              <Button variant="brand" disabled={!lineas.length || telefono.length < 10} onClick={() => void dejarPedido()}>
+                Enviar pedido
+              </Button>
+            </div>
+            {aviso && <p className="text-sm text-moss">{aviso}</p>}
+          </div>
+        </aside>
       </div>
     </div>
   )
