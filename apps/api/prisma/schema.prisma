@@ -1,0 +1,504 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  dueno
+  empleado
+}
+
+enum Unidad {
+  und
+  kg
+  lb
+  l
+}
+
+enum TipoMovimiento {
+  venta
+  compra
+  ajuste
+  merma
+  devolucion
+}
+
+enum MetodoPago {
+  efectivo
+  transferencia
+  fiado
+  mixto
+}
+
+enum OrigenVenta {
+  pos
+  whatsapp
+  catalogo
+}
+
+enum EstadoVenta {
+  confirmada
+  anulada
+}
+
+enum EstadoFiado {
+  abierto
+  saldado
+  anulado
+}
+
+enum EstadoCompra {
+  pedida
+  recibida
+  cancelada
+}
+
+enum DireccionMensaje {
+  entrante
+  saliente
+}
+
+enum TipoMensaje {
+  texto
+  audio
+  imagen
+}
+
+enum EstadoMensaje {
+  pendiente
+  confirmado
+  rechazado
+  error
+}
+
+enum PeriodoMeta {
+  dia
+  semana
+  mes
+}
+
+model Tienda {
+  id               String   @id @default(uuid())
+  nombre           String
+  slug             String   @unique
+  telefonoWhatsapp String?  @map("telefono_whatsapp")
+  zonaHoraria      String   @default("America/Bogota") @map("zona_horaria")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  usuarios     Usuario[]
+  categorias   Categoria[]
+  productos    Producto[]
+  lotes        Lote[]
+  movimientos  MovimientoInventario[]
+  clientes     Cliente[]
+  ventas       Venta[]
+  fiados       Fiado[]
+  abonos       Abono[]
+  aplicaciones AbonoAplicacion[]
+  proveedores  Proveedor[]
+  compras      Compra[]
+  compraItems  CompraItem[]
+  ventaItems   VentaItem[]
+  cierres      CierreCaja[]
+  conteos      ConteoInventario[]
+  mensajes     MensajeWhatsapp[]
+  promociones  Promocion[]
+  puntos       FidelizacionMovimiento[]
+  metas        Meta[]
+
+  @@map("tiendas")
+}
+
+model Usuario {
+  id        String   @id @default(uuid())
+  tiendaId  String   @map("tienda_id")
+  nombre    String
+  telefono  String
+  claveHash String   @map("clave_hash")
+  rol       Rol
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tienda      Tienda                 @relation(fields: [tiendaId], references: [id])
+  ventas      Venta[]
+  movimientos MovimientoInventario[]
+
+  @@unique([tiendaId, telefono])
+  @@map("usuarios")
+}
+
+model Categoria {
+  id        String   @id @default(uuid())
+  tiendaId  String   @map("tienda_id")
+  nombre    String
+  orden     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tienda    Tienda     @relation(fields: [tiendaId], references: [id])
+  productos Producto[]
+
+  @@unique([tiendaId, nombre])
+  @@map("categorias")
+}
+
+model Producto {
+  id              String   @id @default(uuid())
+  tiendaId        String   @map("tienda_id")
+  categoriaId     String   @map("categoria_id")
+  nombre          String
+  codigoBarras    String?  @map("codigo_barras")
+  unidad          Unidad   @default(und)
+  costo           Int
+  precio          Int
+  stockActual     Int      @default(0) @map("stock_actual")
+  stockMinimo     Int      @default(0) @map("stock_minimo")
+  esFavorito      Boolean  @default(false) @map("es_favorito")
+  visibleCatalogo Boolean  @default(false) @map("visible_catalogo")
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tienda      Tienda                 @relation(fields: [tiendaId], references: [id])
+  categoria   Categoria              @relation(fields: [categoriaId], references: [id])
+  lotes       Lote[]
+  movimientos MovimientoInventario[]
+  items       VentaItem[]
+  compraItems CompraItem[]
+  conteos     ConteoInventario[]
+
+  @@unique([tiendaId, codigoBarras])
+  @@index([tiendaId, nombre])
+  @@map("productos")
+}
+
+model Lote {
+  id                String    @id @default(uuid())
+  tiendaId          String    @map("tienda_id")
+  productoId        String    @map("producto_id")
+  compraItemId      String?   @map("compra_item_id")
+  cantidadRestante  Int       @map("cantidad_restante")
+  fechaVencimiento  DateTime? @map("fecha_vencimiento")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tienda     Tienda                 @relation(fields: [tiendaId], references: [id])
+  producto   Producto               @relation(fields: [productoId], references: [id])
+  compraItem CompraItem?            @relation(fields: [compraItemId], references: [id])
+  movimientos MovimientoInventario[]
+
+  @@index([productoId, fechaVencimiento])
+  @@map("lotes")
+}
+
+model MovimientoInventario {
+  id             String         @id @default(uuid())
+  tiendaId       String         @map("tienda_id")
+  productoId     String         @map("producto_id")
+  loteId         String?        @map("lote_id")
+  tipo           TipoMovimiento
+  cantidad       Int
+  costoUnitario  Int            @map("costo_unitario")
+  referenciaTipo String?        @map("referencia_tipo")
+  referenciaId   String?        @map("referencia_id")
+  usuarioId      String?        @map("usuario_id")
+  nota           String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  tienda   Tienda    @relation(fields: [tiendaId], references: [id])
+  producto Producto  @relation(fields: [productoId], references: [id])
+  lote     Lote?     @relation(fields: [loteId], references: [id])
+  usuario  Usuario?  @relation(fields: [usuarioId], references: [id])
+
+  @@index([tiendaId, createdAt])
+  @@index([referenciaId])
+  @@map("movimientos_inventario")
+}
+
+model Cliente {
+  id             String   @id @default(uuid())
+  tiendaId       String   @map("tienda_id")
+  nombre         String
+  telefono       String?
+  direccion      String?
+  limiteCredito  Int      @default(0) @map("limite_credito")
+  score          Int      @default(100)
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tienda  Tienda                   @relation(fields: [tiendaId], references: [id])
+  ventas  Venta[]
+  fiados  Fiado[]
+  abonos  Abono[]
+  puntos  FidelizacionMovimiento[]
+
+  @@index([tiendaId, nombre])
+  @@map("clientes")
+}
+
+model Venta {
+  id         String      @id @default(uuid())
+  tiendaId   String      @map("tienda_id")
+  clienteId  String?     @map("cliente_id")
+  usuarioId  String      @map("usuario_id")
+  total      Int
+  metodoPago MetodoPago  @map("metodo_pago")
+  origen     OrigenVenta @default(pos)
+  estado     EstadoVenta @default(confirmada)
+  fecha      DateTime    @default(now())
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  tienda   Tienda                   @relation(fields: [tiendaId], references: [id])
+  cliente  Cliente?                 @relation(fields: [clienteId], references: [id])
+  usuario  Usuario                  @relation(fields: [usuarioId], references: [id])
+  items    VentaItem[]
+  fiado    Fiado?
+  puntos   FidelizacionMovimiento[]
+
+  @@index([tiendaId, fecha])
+  @@map("ventas")
+}
+
+model VentaItem {
+  id             String   @id @default(uuid())
+  tiendaId       String   @map("tienda_id")
+  ventaId        String   @map("venta_id")
+  productoId     String   @map("producto_id")
+  cantidad       Int
+  precioUnitario Int      @map("precio_unitario")
+  costoUnitario  Int      @map("costo_unitario")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tienda   Tienda   @relation(fields: [tiendaId], references: [id])
+  venta    Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@index([ventaId])
+  @@map("venta_items")
+}
+
+model Fiado {
+  id            String      @id @default(uuid())
+  tiendaId      String      @map("tienda_id")
+  clienteId     String      @map("cliente_id")
+  ventaId       String?     @unique @map("venta_id")
+  montoOriginal Int         @map("monto_original")
+  saldo         Int
+  fecha         DateTime    @default(now())
+  estado        EstadoFiado @default(abierto)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  tienda       Tienda            @relation(fields: [tiendaId], references: [id])
+  cliente      Cliente           @relation(fields: [clienteId], references: [id])
+  venta        Venta?            @relation(fields: [ventaId], references: [id])
+  aplicaciones AbonoAplicacion[]
+
+  @@index([clienteId, estado])
+  @@index([tiendaId, estado])
+  @@map("fiados")
+}
+
+model Abono {
+  id         String     @id @default(uuid())
+  tiendaId   String     @map("tienda_id")
+  clienteId  String     @map("cliente_id")
+  monto      Int
+  metodoPago MetodoPago @map("metodo_pago")
+  fecha      DateTime   @default(now())
+  nota       String?
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  tienda       Tienda            @relation(fields: [tiendaId], references: [id])
+  cliente      Cliente           @relation(fields: [clienteId], references: [id])
+  aplicaciones AbonoAplicacion[]
+
+  @@index([clienteId, fecha])
+  @@map("abonos")
+}
+
+model AbonoAplicacion {
+  id            String   @id @default(uuid())
+  tiendaId      String   @map("tienda_id")
+  abonoId       String   @map("abono_id")
+  fiadoId       String   @map("fiado_id")
+  montoAplicado Int      @map("monto_aplicado")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tienda Tienda @relation(fields: [tiendaId], references: [id])
+  abono  Abono  @relation(fields: [abonoId], references: [id], onDelete: Cascade)
+  fiado  Fiado  @relation(fields: [fiadoId], references: [id])
+
+  @@map("abono_aplicaciones")
+}
+
+model Proveedor {
+  id        String   @id @default(uuid())
+  tiendaId  String   @map("tienda_id")
+  nombre    String
+  contacto  String?
+  telefono  String?
+  notas     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tienda  Tienda   @relation(fields: [tiendaId], references: [id])
+  compras Compra[]
+
+  @@map("proveedores")
+}
+
+model Compra {
+  id             String       @id @default(uuid())
+  tiendaId       String       @map("tienda_id")
+  proveedorId    String       @map("proveedor_id")
+  fechaPedido    DateTime     @default(now()) @map("fecha_pedido")
+  fechaLlegada   DateTime?    @map("fecha_llegada")
+  total          Int
+  estado         EstadoCompra @default(pedida)
+  pagada         Boolean      @default(false)
+  saldoProveedor Int          @default(0) @map("saldo_proveedor")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  tienda    Tienda       @relation(fields: [tiendaId], references: [id])
+  proveedor Proveedor    @relation(fields: [proveedorId], references: [id])
+  items     CompraItem[]
+
+  @@index([tiendaId, fechaPedido])
+  @@map("compras")
+}
+
+model CompraItem {
+  id                String    @id @default(uuid())
+  tiendaId          String    @map("tienda_id")
+  compraId          String    @map("compra_id")
+  productoId        String    @map("producto_id")
+  cantidad          Int
+  costoUnitario     Int       @map("costo_unitario")
+  fechaVencimiento  DateTime? @map("fecha_vencimiento")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tienda   Tienda   @relation(fields: [tiendaId], references: [id])
+  compra   Compra   @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id])
+  lotes    Lote[]
+
+  @@map("compra_items")
+}
+
+model CierreCaja {
+  id                String   @id @default(uuid())
+  tiendaId          String   @map("tienda_id")
+  fecha             DateTime @default(now())
+  efectivoInicial   Int      @map("efectivo_inicial")
+  efectivoEsperado  Int?     @map("efectivo_esperado")
+  efectivoContado   Int?     @map("efectivo_contado")
+  diferencia        Int?
+  notas             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tienda Tienda @relation(fields: [tiendaId], references: [id])
+
+  @@index([tiendaId, fecha])
+  @@map("cierres_caja")
+}
+
+model ConteoInventario {
+  id               String   @id @default(uuid())
+  tiendaId         String   @map("tienda_id")
+  fecha            DateTime @default(now())
+  productoId       String   @map("producto_id")
+  cantidadSistema  Int      @map("cantidad_sistema")
+  cantidadContada  Int      @map("cantidad_contada")
+  diferencia       Int
+  ajustado         Boolean  @default(false)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tienda   Tienda   @relation(fields: [tiendaId], references: [id])
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@map("conteos_inventario")
+}
+
+model MensajeWhatsapp {
+  id                 String           @id @default(uuid())
+  tiendaId           String           @map("tienda_id")
+  telefono           String
+  direccion          DireccionMensaje
+  contenido          String
+  tipo               TipoMensaje      @default(texto)
+  interpretacionJson Json?            @map("interpretacion_json")
+  estado             EstadoMensaje    @default(pendiente)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  tienda Tienda @relation(fields: [tiendaId], references: [id])
+
+  @@index([tiendaId, estado])
+  @@map("mensajes_whatsapp")
+}
+
+model Promocion {
+  id           String   @id @default(uuid())
+  tiendaId     String   @map("tienda_id")
+  nombre       String
+  tipo         String
+  productoIds  String[] @map("producto_ids")
+  descuento    Int
+  vigenteDesde DateTime @map("vigente_desde")
+  vigenteHasta DateTime @map("vigente_hasta")
+  activa       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tienda Tienda @relation(fields: [tiendaId], references: [id])
+
+  @@map("promociones")
+}
+
+model FidelizacionMovimiento {
+  id        String   @id @default(uuid())
+  tiendaId  String   @map("tienda_id")
+  clienteId String   @map("cliente_id")
+  puntos    Int
+  motivo    String
+  ventaId   String?  @map("venta_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tienda  Tienda  @relation(fields: [tiendaId], references: [id])
+  cliente Cliente @relation(fields: [clienteId], references: [id])
+  venta   Venta?  @relation(fields: [ventaId], references: [id])
+
+  @@map("fidelizacion_movimientos")
+}
+
+model Meta {
+  id            String      @id @default(uuid())
+  tiendaId      String      @map("tienda_id")
+  periodo       PeriodoMeta
+  fechaInicio   DateTime    @map("fecha_inicio")
+  montoObjetivo Int         @map("monto_objetivo")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  tienda Tienda @relation(fields: [tiendaId], references: [id])
+
+  @@map("metas")
+}

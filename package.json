@@ -1,0 +1,10 @@
+{
+  "name": "tienda",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter api --filter web dev",
+    "build": "pnpm --filter api --filter web build",
+    "db:up": "docker compose up -d",
+    "db:setup": "pnpm --filter api db:setup"
+  }
+}
